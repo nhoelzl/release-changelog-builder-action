@@ -9,6 +9,7 @@ export interface PullRequestInfo {
   title: string
   htmlURL: string
   mergedAt: moment.Moment
+  mergeCommitSha: string
   author: string
   repoName: string
   labels: string[]
@@ -38,24 +39,28 @@ export class PullRequests {
         title: pr.data.title,
         htmlURL: pr.data.html_url,
         mergedAt: moment(pr.data.merged_at),
-        author: pr.data.user.login,
+        mergeCommitSha: pr.data.merge_commit_sha || '',
+        author: pr.data.user?.login || '',
         repoName: pr.data.base.repo.full_name,
-        labels: pr.data.labels.map(function (label) {
-          return label.name
-        }),
-        milestone: pr.data.milestone?.title,
-        body: pr.data.body,
-        assignees: pr.data.assignees?.map(function (asignee) {
-          return asignee.login
-        }),
-        requestedReviewers: pr.data.requested_reviewers?.map(function (
-          reviewer
-        ) {
-          return reviewer.login
-        })
+        labels:
+          pr.data.labels?.map(function (label) {
+            return label.name || ''
+          }) || [],
+        milestone: pr.data.milestone?.title || '',
+        body: pr.data.body || '',
+        assignees:
+          pr.data.assignees?.map(function (asignee) {
+            return asignee?.login || ''
+          }) || [],
+        requestedReviewers:
+          pr.data.requested_reviewers?.map(function (reviewer) {
+            return reviewer?.login || ''
+          }) || []
       }
     } catch (e) {
-      core.warning(`Cannot find PR ${owner}/${repo}#${prNumber} - ${e.message}`)
+      core.warning(
+        `⚠️ Cannot find PR ${owner}/${repo}#${prNumber} - ${e.message}`
+      )
       return null
     }
   }
@@ -73,6 +78,7 @@ export class PullRequests {
       repo,
       state: 'closed',
       sort: 'updated',
+      per_page: '100',
       direction: 'desc'
     })
 
@@ -86,29 +92,34 @@ export class PullRequests {
           title: pr.title,
           htmlURL: pr.html_url,
           mergedAt: moment(pr.merged_at),
-          author: pr.user.login,
+          mergeCommitSha: pr.merge_commit_sha || '',
+          author: pr.user?.login || '',
           repoName: pr.base.repo.full_name,
-          labels: pr.labels?.map(function (label) {
-            return label.name
-          }),
-          milestone: pr.milestone?.title,
-          body: pr.body,
-          assignees: pr.assignees?.map(function (asignee) {
-            return asignee.login
-          }),
-          requestedReviewers: pr.requested_reviewers?.map(function (reviewer) {
-            return reviewer.login
-          })
+          labels:
+            pr.labels?.map(function (label) {
+              return label.name || ''
+            }) || [],
+          milestone: pr.milestone?.title || '',
+          body: pr.body || '',
+          assignees:
+            pr.assignees?.map(function (asignee) {
+              return asignee?.login || ''
+            }) || [],
+          requestedReviewers:
+            pr.requested_reviewers?.map(function (reviewer) {
+              return reviewer?.login || ''
+            }) || []
         })
       }
 
       const firstPR = prs[0]
       if (
+        firstPR === undefined ||
         (firstPR.merged_at && fromDate.isAfter(moment(firstPR.merged_at))) ||
         mergedPRs.length >= maxPullRequests
       ) {
         if (mergedPRs.length >= maxPullRequests) {
-          core.info(`Reached 'maxPullRequests' count ${maxPullRequests}`)
+          core.info(`⚠️ Reached 'maxPullRequests' count ${maxPullRequests}`)
         }
 
         // bail out early to not keep iterating on PRs super old
@@ -119,11 +130,13 @@ export class PullRequests {
     return sortPullRequests(mergedPRs, true)
   }
 
+  /**
+   * Filters out all commits which match the exclude pattern
+   */
   filterCommits(
     commits: CommitInfo[],
     excludeMergeBranches: string[]
   ): CommitInfo[] {
-    const prRegex = /Merge pull request #(\d+)/
     const filteredCommits = []
 
     for (const commit of commits) {
@@ -139,12 +152,6 @@ export class PullRequests {
           continue
         }
       }
-
-      const match = commit.summary.match(prRegex)
-      if (!match) {
-        continue
-      }
-      commit.prNumber = Number.parseInt(match[1], 10)
       filteredCommits.push(commit)
     }
 

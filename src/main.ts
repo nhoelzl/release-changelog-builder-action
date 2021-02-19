@@ -1,110 +1,61 @@
 import * as core from '@actions/core'
-import {readConfiguration} from './utils'
-import {ReleaseNotes} from './releaseNotes'
-import {createCommandManager} from './git-helper'
+import {
+  retrieveRepositoryPath,
+  resolveConfiguration,
+  writeOutput
+} from './utils'
 import * as github from '@actions/github'
-import * as path from 'path'
-import {DefaultConfiguration} from './configuration'
+import {ReleaseNotesBuilder} from './releaseNotesBuilder'
 
 async function run(): Promise<void> {
+  core.setOutput('failed', false) // mark the action not failed by default
+
+  core.startGroup(`📘 Reading input values`)
   try {
-    let githubWorkspacePath = process.env['GITHUB_WORKSPACE']
-    if (!githubWorkspacePath) {
-      throw new Error('GITHUB_WORKSPACE not defined')
-    }
-    githubWorkspacePath = path.resolve(githubWorkspacePath)
-    core.debug(`GITHUB_WORKSPACE = '${githubWorkspacePath}'`)
+    // read in path specification, resolve github workspace, and repo path
+    const inputPath = core.getInput('path')
+    const repositoryPath = retrieveRepositoryPath(inputPath)
 
-    let repositoryPath = core.getInput('path') || '.'
-    repositoryPath = path.resolve(githubWorkspacePath, repositoryPath)
-    core.debug(`repositoryPath = '${repositoryPath}'`)
-
+    // read in configuration file if possible
     const configurationFile: string = core.getInput('configuration')
-    let configuration = DefaultConfiguration
-    if (configurationFile) {
-      const configurationPath = path.resolve(
-        githubWorkspacePath,
-        configurationFile
-      )
-      core.debug(`configurationPath = '${configurationPath}'`)
-      const providedConfiguration = readConfiguration(configurationPath)
-      if (!providedConfiguration) {
-        core.error(
-          `Configuration provided, but it couldn't be found, or failed to parse`
-        )
-      } else {
-        configuration = providedConfiguration
-      }
-    }
+    const configuration = resolveConfiguration(
+      repositoryPath,
+      configurationFile
+    )
 
+    // read in repository inputs
     const token = core.getInput('token')
-    let owner = core.getInput('owner')
-    let repo = core.getInput('repo')
-
+    const owner = core.getInput('owner') || github.context.repo.owner
+    const repo = core.getInput('repo') || github.context.repo.repo
+    // read in from, to tag inputs
     const fromTag = core.getInput('fromTag')
-    let toTag = core.getInput('toTag')
+    const toTag = core.getInput('toTag')
+    // read in flags
+    const ignorePreReleases = core.getInput('ignorePreReleases') === 'true'
+    const failOnError = core.getInput('failOnError') === 'true'
+    const commitMode = core.getInput('commitMode') === 'true'
 
-    const ignorePreReleases = core.getInput('ignorePreReleases')
-
-    if (!toTag) {
-      // if not specified try to retrieve tag from git
-      const gitHelper = await createCommandManager(repositoryPath)
-      const latestTag = await gitHelper.latestTag()
-      toTag = latestTag
-      core.debug(`toTag = '${latestTag}'`)
-    }
-
-    if (!owner || !repo) {
-      // Qualified repository
-      const qualifiedRepository =
-        core.getInput('repository') ||
-        `${github.context.repo.owner}/${github.context.repo.repo}`
-      core.debug(`qualified repository = '${qualifiedRepository}'`)
-      const splitRepository = qualifiedRepository.split('/')
-      if (
-        splitRepository.length !== 2 ||
-        !splitRepository[0] ||
-        !splitRepository[1]
-      ) {
-        throw new Error(
-          `Invalid repository '${qualifiedRepository}'. Expected format {owner}/{repo}.`
-        )
-      }
-      owner = splitRepository[0]
-      repo = splitRepository[1]
-    }
-
-    if (!owner) {
-      core.error(`Missing or couldn't resolve 'owner'`)
-      return
-    } else {
-      core.debug(`Resolved 'owner' as ${owner}`)
-    }
-
-    if (!repo) {
-      core.error(`Missing or couldn't resolve 'owner'`)
-      return
-    } else {
-      core.debug(`Resolved 'repo' as ${repo}`)
-    }
-
-    if (!toTag) {
-      core.error(`Missing or couldn't resolve 'toTag'`)
-      return
-    } else {
-      core.debug(`Resolved 'toTag' as ${toTag}`)
-    }
-
-    const releaseNotes = new ReleaseNotes({
+    const result = await new ReleaseNotesBuilder(
+      token,
+      repositoryPath,
       owner,
       repo,
       fromTag,
       toTag,
-      ignorePreReleases: ignorePreReleases === 'true',
+      failOnError,
+      ignorePreReleases,
+      commitMode,
       configuration
-    })
+    ).build()
 
-    core.setOutput('changelog', await releaseNotes.pull(token))
+    core.setOutput('changelog', result)
+
+    // write the result in changelog to file if possible
+    const outputFile: string = core.getInput('outputFile')
+    if (outputFile !== '') {
+      core.debug(`Enabled writing the changelog to disk`)
+      writeOutput(repositoryPath, outputFile, result)
+    }
   } catch (error) {
     core.setFailed(error.message)
   }

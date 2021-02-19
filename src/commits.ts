@@ -8,7 +8,6 @@ export interface CommitInfo {
   message: string
   author: string
   date: moment.Moment
-  prNumber: number | undefined
 }
 
 export class Commits {
@@ -55,16 +54,19 @@ export class Commits {
     }
 
     core.info(
-      `Found ${commits.length} commits from the GitHub API for ${owner}/${repo}`
+      `ℹ️ Found ${commits.length} commits from the GitHub API for ${owner}/${repo}`
     )
-    return commits.map(commit => ({
-      sha: commit.sha,
-      summary: commit.commit.message.split('\n')[0],
-      message: commit.commit.message,
-      date: moment(commit.commit.committer.date),
-      author: commit.commit.author.name,
-      prNumber: undefined
-    }))
+
+    return commits
+      .filter(commit => commit.sha)
+      .map(commit => ({
+        sha: commit.sha || '',
+        summary: commit.commit.message.split('\n')[0],
+        message: commit.commit.message,
+        date: moment(commit.commit.committer?.date),
+        author: commit.commit.author?.name || '',
+        prNumber: undefined
+      }))
   }
 
   private sortCommits(commits: CommitInfo[]): CommitInfo[] {

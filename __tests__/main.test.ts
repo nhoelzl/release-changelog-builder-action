@@ -1,117 +1,60 @@
-import {wait} from '../src/wait'
+import * as path from 'path'
 import * as process from 'process'
 import * as cp from 'child_process'
-import * as path from 'path'
-import {ReleaseNotes} from '../src/releaseNotes'
-import {readConfiguration} from '../src/utils'
-import {createCommandManager} from '../src/git-helper'
-import * as core from '@actions/core'
-import {Tags} from '../src/tags'
+import * as fs from 'fs'
 
-// shows how the runner will run a javascript action with env / stdout protocol
-/*
-test('test runs', () => {
-  jest.setTimeout(180000);
-  
+test('missing values should result in failure', () => {
+  process.env['GITHUB_WORKSPACE'] = '.'
   process.env['INPUT_CONFIGURATION'] = 'configuration.json'
   const ip = path.join(__dirname, '..', 'lib', 'main.js')
   const options: cp.ExecSyncOptions = {
     env: process.env
   }
-  console.log(cp.execSync(`node ${ip}`, options).toString())
-})
-*/
-it('Should have empty changelog (tags)', async () => {
-  jest.setTimeout(180000)
-
-  const configuration = readConfiguration('configs/configuration.json')!!
-  const releaseNotes = new ReleaseNotes({
-    owner: 'mikepenz',
-    repo: 'release-changelog-builder-action',
-    fromTag: 'v0.0.1',
-    toTag: 'v0.0.2',
-    ignorePreReleases: false,
-    configuration: configuration
-  })
-
-  const changeLog = await releaseNotes.pull()
-  console.log(changeLog)
-  expect(changeLog).toStrictEqual(`- no changes`)
+  try {
+    cp.execSync(`node ${ip}`, options).toString()
+    fail('Should not succeed, because values miss')
+  } catch (error) {
+    console.log(`correctly failed due to: ${error}`)
+  }
 })
 
-it('Should match generated changelog (tags)', async () => {
-  jest.setTimeout(180000)
+test('complete input should succeed', () => {
+  process.env['GITHUB_WORKSPACE'] = '.'
+  process.env['INPUT_CONFIGURATION'] = 'configuration.json'
+  process.env['INPUT_OWNER'] = 'mikepenz'
+  process.env['INPUT_REPO'] = 'release-changelog-builder-action'
+  process.env['INPUT_FROMTAG'] = 'v0.3.0'
+  process.env['INPUT_TOTAG'] = 'v0.5.0'
 
-  const configuration = readConfiguration('configs/configuration.json')!!
-  const releaseNotes = new ReleaseNotes({
-    owner: 'mikepenz',
-    repo: 'release-changelog-builder-action',
-    fromTag: 'v0.0.1',
-    toTag: 'v0.0.3',
-    ignorePreReleases: false,
-    configuration: configuration
-  })
-
-  const changeLog = await releaseNotes.pull()
-  console.log(changeLog)
-  expect(changeLog).toStrictEqual(`## 🧪 Tests
-
-- [CI] Specify Test Case
-   - PR: #10
-
-`)
+  const ip = path.join(__dirname, '..', 'lib', 'main.js')
+  const options: cp.ExecSyncOptions = {
+    env: process.env
+  }
+  const result = cp.execSync(`node ${ip}`, options).toString()
+  // should succeed
+  expect(result).toBeDefined()
 })
 
-it('Should match generated changelog (unspecified fromTag)', async () => {
-  jest.setTimeout(180000)
+test('should write result to file', () => {
+  process.env['GITHUB_WORKSPACE'] = '.'
+  process.env['INPUT_CONFIGURATION'] = 'configuration.json'
+  process.env['INPUT_OWNER'] = 'mikepenz'
+  process.env['INPUT_REPO'] = 'release-changelog-builder-action'
+  process.env['INPUT_FROMTAG'] = 'v0.3.0'
+  process.env['INPUT_TOTAG'] = 'v0.5.0'
+  process.env['INPUT_OUTPUTFILE'] = 'test.md'
 
-  const configuration = readConfiguration('configs/configuration.json')!!
-  const releaseNotes = new ReleaseNotes({
-    owner: 'mikepenz',
-    repo: 'release-changelog-builder-action',
-    fromTag: null,
-    toTag: 'v0.0.3',
-    ignorePreReleases: false,
-    configuration: configuration
-  })
+  const ip = path.join(__dirname, '..', 'lib', 'main.js')
+  const options: cp.ExecSyncOptions = {
+    env: process.env
+  }
+  const result = cp.execSync(`node ${ip}`, options).toString()
+  // should succeed
+  expect(result).toBeDefined()
 
-  const changeLog = await releaseNotes.pull()
-  console.log(changeLog)
-  expect(changeLog).toStrictEqual(`## 🧪 Tests
+  const readOutput = fs.readFileSync("test.md")
 
-- [CI] Specify Test Case
-   - PR: #10
+  fs.unlinkSync("test.md")
 
-`)
-})
-
-it('Should match generated changelog (refs)', async () => {
-  jest.setTimeout(180000)
-
-  const configuration = readConfiguration('configs/configuration_all_placeholders.json')!!
-  const releaseNotes = new ReleaseNotes({
-    owner: 'mikepenz',
-    repo: 'release-changelog-builder-action',
-    fromTag: '5ec7a2d86fe9f43fdd38d5e254a1117c8a51b4c3',
-    toTag: 'fa3788c8c4b3373ef8424ce3eb008a5cd07cc5aa',
-    ignorePreReleases: false,
-    configuration: configuration
-  })
-
-  const changeLog = await releaseNotes.pull()
-  console.log(changeLog)
-  expect(changeLog).toStrictEqual(`## 🧪 Tests
-
-[CI] Specify Test Case
-10
-https://github.com/mikepenz/release-changelog-builder-action/pull/10
-2020-10-16T13:59:36.000Z
-mikepenz
-test
-1.0.0
-- specify test case
-mikepenz, nhoelzl
-nhoelzl
-
-`)
+  expect(readOutput.toString()).not.toBe('')
 })
